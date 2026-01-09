@@ -1,0 +1,46 @@
+rule aws_iam_trust_policy_modified_for_persistence {
+  meta:
+    author = "detections.ai"
+    date = "2025-09-16"
+    description = "Detects modification of an AWS IAM role's trust policy to include a principal from an unknown or untrusted AWS account. This is a common persistence technique used by attackers to maintain access to a compromised environment by allowing their external account to assume the role."
+    reference = "https://www.riskinsight-wavestone.com/en/2025/09/awsdoor-persistence-on-aws/"
+    tactic = "TA0003"
+    technique = "T1136.001"
+    tags = "AWS, IAM, PERSISTENCE"
+    false_positives = "Legitimate cross-account access configurations for third-party services, partners, or other internal but separately managed accounts. A list of known/approved external account IDs should be maintained and used for exclusion."
+events:
+    // Filter for AWS CloudTrail logs indicating an AssumeRole policy was updated.
+    $e.metadata.event_type = "USER_UNCATEGORIZED"
+    $e.metadata.product_name = "CloudTrail"
+    $e.metadata.vendor_name = "AMAZON"
+    $e.metadata.product_event_type = "UpdateAssumeRolePolicy"
+    $e.security_result.action = "ALLOW"
+
+    // Capture the first AWS Account ID found in the policy document's Principal block.
+    // Note: This captures only the first match. If multiple external principals are added, only the first will be evaluated.
+    // Uncomment when using list %known_aws_partner_accounts:
+    //$foreign_account_id = re.capture($e.additional.policy_document, /arn:aws:iam::(\d{12}):(?:root|user\/|role\/)/)
+
+    // Capture key fields for context.
+    $editor_user = $e.principal.user.userid
+    $editor_ip = $e.principal.ip
+    $target_role = $e.target.resource.name
+
+  outcome:
+    // Risk score can be adjusted based on environment.
+    $risk_score = 45
+    $principal_user_userid = $editor_user
+    $principal_ip = $editor_ip
+    $target_resource_name = $target_role
+    $foreign_principal_account_id = $foreign_account_id
+    $aws_account_id = $e.principal.account.id
+    $policy_document = $e.additional.policy_document
+    $user_agent = $e.network.http.user_agent
+
+  condition:
+    // The event must exist, and the captured foreign account ID must not be the same as the current account
+    // and must not be in the list of known partner accounts.
+    $e 
+    // Uncomment when using list %known_aws_partner_accounts:
+    // and $foreign_account_id != $e.principal.account.id and not $foreign_account_id in %known_aws_partner_accounts
+}
