@@ -1,0 +1,44 @@
+rule o1flip_ransomware_artifacts {
+  meta:
+    author = "Nomit Vyas"
+    date = "2025-12-22"
+    description = "Detects the creation of the 01flip ransom note 'RECOVER-YOUR-FILE.TXT' followed by the rapid renaming of multiple files with the '.01flip' extension on the same host."
+    false_positives = "This activity is highly specific to ransomware behavior, making false positives unlikely. However, a file archiver or backup process that uses a similar naming convention could theoretically trigger it, though this is improbable."
+    reference = "https://unit42.paloaltonetworks.com/new-ransomware-01flip-written-in-rust/, https://exchange.xforce.ibmcloud.com/osint/guid:d098e26fb503473f82662c1547ee874b"
+    tags = "RANSOMWARE, CRIME, 01FLIP, RUST"
+    tactic = "TA0040"
+    technique = "T1486"
+
+  events:
+    // Event for the creation of the 01flip ransom note.
+    $note.metadata.event_type = "FILE_CREATION"
+    $note.target.file.full_path = /RECOVER-YOUR-FILE\.TXT$/ nocase
+    $note.principal.hostname = $hostname
+    $note.principal.process.command_line = $process_command_line
+
+    // Event for files being renamed with the .01flip extension.
+    $rename.metadata.event_type = "FILE_RENAME"
+    $rename.target.file.full_path = /\.01flip$/ nocase
+    $rename.principal.hostname = $hostname
+    $rename.principal.process.command_line = $process_command_line
+
+  match:
+    // Correlate events by hostname and the responsible process over a 5 minute window.
+    $hostname, $process_command_line over 5m
+
+  outcome:
+    // High risk score due to the high fidelity of this pattern.
+    $risk_score = 85
+    $principal_hostname = $hostname
+    $principal_process_command_line = array_distinct($note.principal.process.command_line)
+    $principal_process_pid = array_distinct($note.principal.process.pid)
+    $principal_user_userid = array_distinct($note.principal.user.userid)
+    // The number of files renamed by the ransomware.
+    $event_count_rename = count($rename)
+    // The threshold for renamed files can be adjusted based on environment specifics.
+    $threshold_for_rename = 10
+
+  condition:
+    // Trigger if the ransom note is created and more than 10 files are renamed.
+    $note and #rename > 10
+}
