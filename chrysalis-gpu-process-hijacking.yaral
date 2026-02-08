@@ -1,0 +1,39 @@
+rule chrysalis_gpu_process_hijacking {
+  meta:
+    description = "Detects the Notepad++ updater process (GUP.exe) spawning the Windows Command Shell (cmd.exe) to execute reconnaissance commands. This behavior is associated with the Chrysalis backdoor used in the Notepad++ supply chain attack."
+    author = "Nomit Vyas"
+    date = "2026-02-09"
+    reference = "https://securelist.com/notepad-supply-chain-attack/118708/, https://hivepro.com/threat-advisory/chrysalis-backdoor-a-quiet-passenger-in-notepad-updates/"
+    tags = "APT31, CHRYSALIS, NOTEPAD++, RECONNAISSANCE, PROCESS"
+    tactic = "TA0007, TA0002"
+    technique = "T1059.003, T1082, T1057"
+    false_positives = "Legitimate update scripts associated with Notepad++ or other software using a GUP.exe updater might spawn cmd.exe. However, the execution of reconnaissance commands is highly anomalous and indicative of malicious activity."
+events:
+    // Event for a process launch
+    $process.metadata.event_type = "PROCESS_LAUNCH"
+
+    // The parent process is the Notepad++ updater, GUP.exe
+    re.regex($process.principal.process.file.full_path, `\\GUP\.exe$`) nocase
+
+    // The child process is the Windows Command Shell
+    re.regex($process.target.process.file.full_path, `\\cmd\.exe$`) nocase
+
+    // The command line includes common reconnaissance commands.
+    // This is the key indicator of malicious intent.
+    re.regex($process.target.process.command_line, `whoami|tasklist|systeminfo|ipconfig|net\s+(user|view|group)`) nocase
+
+  outcome:
+    // Risk score is elevated due to the suspicious nature of recon commands from an updater.
+    $risk_score = 70
+    $principal_hostname = $process.principal.hostname
+    $principal_user_userid = $process.principal.user.userid
+    $principal_process_path = $process.principal.process.file.full_path
+    $principal_process_pid = $process.principal.process.pid
+    $principal_process_command_line = $process.principal.process.command_line
+    $target_process_path = $process.target.process.file.full_path
+    $target_process_pid = $process.target.process.pid
+    $target_process_command_line = $process.target.process.command_line
+
+  condition:
+    $process
+}
