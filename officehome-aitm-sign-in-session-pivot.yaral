@@ -1,0 +1,50 @@
+rule officehome_aitm_sign_in_session_pivot {
+
+  meta:
+    description = "Detects an anomalous OfficeHome sign-in from an unmanaged device that completes secondary auth (error 50074) followed by a keep-me-signed-in event (error 50140), with the same session/user then rapidly accessing multiple sensitive applications (My Apps, My Profile, Account Controls, My SignIns, SharePoint/OneDrive/Outlook) - consistent with AiTM-assisted MFA bypass and persistent session establishment"
+    severity = "High"
+    author = "Nomit Vyas"
+    false_positive1 = "Users moving between networks with different conditional access compliance states"
+    false_positive2 = "Legitimate users using multiple browser sessions or profiles on the same device"
+    false_positive3 = "Users legitimately interacting with multiple O365 applications in quick succession immediately following a sign-in"
+    false_positive4 = "Browser updates or session-clearing extensions triggering re-authentication events"
+events:
+    // Step 1: secondary auth required during OfficeHome sign-in from unmanaged device
+    $e1.metadata.event_type = "USER_LOGIN"
+    $e1.target.application = "OfficeHome"
+    $e1.security_result.summary = "50074"
+    $e1.principal.user.userid = $user
+    $e1.target.asset.attribute.labels["managed"] = "false"
+
+    // Step 2: keep-me-signed-in event establishing the persistent session
+    $e2.metadata.event_type = "USER_LOGIN"
+    $e2.security_result.summary = "50140"
+    $e2.principal.user.userid = $user
+    $e2.network.http.user_agent = $ua
+
+    // Step 3: rapid pivot into sensitive applications using the same session/browser identity
+    $e3.metadata.event_type = "USER_RESOURCE_ACCESS"
+    $e3.principal.user.userid = $user
+    $e3.network.http.user_agent = $ua
+    (
+      $e3.target.application = "My Apps" or
+      $e3.target.application = "My Profile" or
+      $e3.target.application = "Microsoft Approval Management" or
+      $e3.target.application = "Account Controls V2" or
+      $e3.target.application = "My SignIns" or
+      $e3.target.application = "SharePoint Online" or
+      $e3.target.application = "OneDrive for Business" or
+      $e3.target.application = "Outlook Web"
+    )
+
+  match:
+    $user, $ua over 30m
+
+  outcome:
+    $risk_score = 85
+    $apps_accessed = array_distinct($e3.target.application)
+    $app_count = count_distinct($e3.target.application)
+
+  condition:
+    $e1 and $e2 and $e3 and $app_count >= 2
+}
