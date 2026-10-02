@@ -1,0 +1,27 @@
+rule device_code_auth_token_replay {
+  meta:
+    author = "Nomit Vyas"
+    description = "Device code authentication flow completed, followed by subsequent session activity from a different IP/user-agent, indicating token replay to an attacker-controlled client that bypasses MFA"
+    severity = "High"
+
+  events:
+    $login.metadata.event_type = "USER_LOGIN"
+    $login.principal.user.userid = $user
+    $login.principal.ip = $login_ip
+    $login.target.resource.attribute.labels["authentication_protocol"] = /device[_ ]?code/ nocase
+
+    $use.metadata.event_type = "USER_LOGIN"
+    $use.principal.user.userid = $user
+    $use.principal.ip = $use_ip
+    $login_ip != $use_ip
+
+  match:
+    $user over 1h
+
+  outcome:
+    $risk_score = 85
+    $ip_list = array_distinct($login.principal.ip)
+
+  condition:
+    $login and $use
+}
